@@ -15,6 +15,7 @@ mod integration_tests {
     };
     use tempfile::TempDir;
     use tokio::{net::TcpStream, time::sleep};
+    use which::which;
 
     const RUST_HTTP_INTEGRATION_TEST: &str = "tests/http/simple-spin-rust";
     const RUST_HTTP_INTEGRATION_TEST_REF: &str = "spin-hello-world/1.0.0";
@@ -41,6 +42,15 @@ mod integration_tests {
     const HIPPO_BASIC_AUTH_PASSWORD: &str = "topsecret";
 
     // This assumes all tests have been previously compiled by the top-level build script.
+
+    #[tokio::test]
+    async fn test_dependencies() -> Result<()> {
+        which(get_process(BINDLE_SERVER_BINARY))?;
+        which(get_process(NOMAD_BINARY))?;
+        which(get_process(HIPPO_BINARY))?;
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn test_simple_rust_local() -> Result<()> {
