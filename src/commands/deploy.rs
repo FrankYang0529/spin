@@ -12,11 +12,11 @@ use semver::BuildMetadata;
 use sha2::{Digest, Sha256};
 use spin_http::routes::RoutePattern;
 use spin_http::WELL_KNOWN_HEALTH_PATH;
+use spin_loader::bindle::BindleConnectionInfo;
 use spin_loader::local::config::{RawAppManifest, RawAppManifestAnyVersion};
 use spin_loader::local::{assets, config};
 use spin_manifest::ApplicationTrigger;
 use spin_manifest::{HttpTriggerConfiguration, TriggerConfig};
-use spin_publish::BindleConnectionInfo;
 use tokio::fs;
 
 use std::fs::File;
@@ -47,6 +47,55 @@ pub struct DeployCommand {
         default_value = "spin.toml"
     )]
     pub app: PathBuf,
+
+    /// Bindle secret file path to load key
+    #[clap(
+        name = BINDLE_SECRET_FILE,
+        long = "bindle-secret-file",
+        env = BINDLE_SECRET_FILE,
+    )]
+    pub bindle_secret_file: Option<PathBuf>,
+
+    /// Bindle keyring file path. Defaults to $XDG_CONFIG/bindle/keyring.toml.
+    #[clap(
+        name = BINDLE_KEYRING_FILE,
+        long = "bindle-keyring-file",
+        env = BINDLE_KEYRING_FILE,
+    )]
+    pub bindle_keyring_file: Option<PathBuf>,
+
+    /// Bindle role to sign the file
+    #[clap(
+        name = BINDLE_ROLE,
+        long = "bindle-role",
+        env = BINDLE_ROLE,
+    )]
+    pub bindle_role: Option<String>,
+
+    /// Bindle key label
+    #[clap(
+        name = BINDLE_LABEL,
+        long = "bindle-label",
+        env = BINDLE_LABEL,
+    )]
+    pub bindle_label: Option<String>,
+
+    /// Bindle label which partially matches keys
+    #[clap(
+        name = BINDLE_LABEL_MATCHING,
+        long = "bindle-label-matching",
+        env = BINDLE_LABEL_MATCHING,
+    )]
+    pub bindle_label_matching: Option<String>,
+
+    /// Ignore server certificate errors from bindle and hippo
+    #[clap(
+        name = INSECURE_OPT,
+        short = 'k',
+        long = "insecure",
+        takes_value = false,
+    )]
+    pub insecure: bool,
 
     /// Path to assemble the bindle before pushing (defaults to
     /// a temporary directory)
@@ -201,7 +250,9 @@ impl DeployCommand {
             login_connection.danger_accept_invalid_certs,
             login_connection.bindle_username,
             login_connection.bindle_password,
-        );
+            self.bindle_keyring_file.clone(),
+        )
+        .await?;
 
         let bindle_id = self
             .create_and_push_bindle(buildinfo, bindle_connection_info)
@@ -341,7 +392,9 @@ impl DeployCommand {
             su.join(BINDLE_REGISTRY_URL_PATH)?.to_string(),
             login_connection.danger_accept_invalid_certs,
             login_connection.token,
-        );
+            self.bindle_keyring_file.clone(),
+        )
+        .await?;
 
         let bindle_id = self
             .create_and_push_bindle(buildinfo, bindle_connection_info)
@@ -574,9 +627,17 @@ impl DeployCommand {
             None => temp_dir.path(),
             Some(path) => path.as_path(),
         };
-        let (invoice, sources) = spin_publish::expand_manifest(&self.app, buildinfo, &dest_dir)
-            .await
-            .with_context(|| format!("Failed to expand '{}' to a bindle", self.app.display()))?;
+        let (invoice, sources) = spin_publish::expand_manifest(
+            &self.app,
+            buildinfo,
+            &dest_dir,
+            self.bindle_secret_file.clone(),
+            self.bindle_role.clone(),
+            self.bindle_label.clone(),
+            self.bindle_label_matching.clone(),
+        )
+        .await
+        .with_context(|| format!("Failed to expand '{}' to a bindle", self.app.display()))?;
 
         let bindle_id = &invoice.bindle.id;
 
